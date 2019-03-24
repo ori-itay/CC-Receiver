@@ -1,3 +1,4 @@
+#define _CRT_SECURE_NO_WARNINGS
 #include <stdio.h>
 #include <winsock2.h>
 #include <stdlib.h>
@@ -7,7 +8,7 @@
 
 #pragma comment(lib, "Ws2_32.lib")
 
-#define _CRT_SECURE_NO_WARNINGS
+
 void Init_Winsock();
 
 int main(int argc, char** argv) {
