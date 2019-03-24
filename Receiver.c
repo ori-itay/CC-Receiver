@@ -1,7 +1,13 @@
 #include <stdio.h>
-#include "winsock2.h"
+#include <winsock2.h>
 #include <stdlib.h>
+#include <ws2tcpip.h>
+#include <string.h>
 
+
+#pragma comment(lib, "Ws2_32.lib")
+
+#define _CRT_SECURE_NO_WARNINGS
 void Init_Winsock();
 
 int main(int argc, char** argv) {
@@ -24,7 +30,7 @@ int main(int argc, char** argv) {
 	memset(&receiver_addr, 0, sizeof(receiver_addr));
 	receiver_addr.sin_family = AF_INET;
 	receiver_addr.sin_port = htons(port);
-	receiver_addr.sin_addr.s_addr = inet_addr(INADDR_ANY);
+	receiver_addr.sin_addr.s_addr = INADDR_ANY;
 
 	if (0 != bind(listenfd, (struct sockaddr*) &receiver_addr, sizeof(receiver_addr))){
 		fprintf(stderr, "%s\n", strerror(errno));
@@ -34,16 +40,16 @@ int main(int argc, char** argv) {
 		fprintf(stderr, "%s\n", strerror(errno));
 		return 1;
 	}
-	connfd = accept(listenfd, (struct sockaddr*) &channel, &sockAddrInLength);
+	connfd = accept(listenfd, (struct sockaddr*) &channel, &sockAddrInLength); // implement that there is a thread handing stdin, and then opening a new socket and sending it to the channel
 	if (connfd < 0)
 	{
 		fprintf(stderr, "%s\n", strerror(errno));
-		socketclose(connfd);
+		closesocket(connfd);
 	}
 
 
 
-
+	WSACleanup();
 	return 0;
 }
 
