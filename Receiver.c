@@ -22,8 +22,8 @@ int main(int argc, char** argv) {
 
 	char r_c_buff[R_C_BUFF], file_write_buff[R_C_BUFF];
 	int send_buff[SEND_BUFF];
-	int bytes_read, tot_err_cnt = 0, tot_received = 0, tot_written_to_file = 0, tot_err_fixed = 0;
-	int notwritten, totalsent, num_sent;
+	int tot_err_cnt = 0, tot_received = 0, tot_written_to_file = 0, tot_err_fixed = 0;
+	int notwritten, totalsent, num_sent, bytes_read, notread, totalread;
 	int listenfd = -1;
 	int connfd = -1;
 	int sockAddrInLength = sizeof(struct sockaddr_in);
@@ -72,8 +72,18 @@ int main(int argc, char** argv) {
 	HANDLE thread = CreateThread(NULL, 0, thread_end_listen, &connfd, 0, NULL);
 
 	while (END_FLAG == 0) {
-
-		bytes_read = recvfrom(connfd, r_c_buff, R_C_BUFF, 0, 0, 0);
+		notread = R_C_BUFF;
+		bytes_read = 0;
+		while (notread > 0) {
+			bytes_read = recvfrom(connfd, r_c_buff+ bytes_read, R_C_BUFF, 0, 0, 0);
+			if (bytes_read == -1) {
+				fprintf(stderr, "%s\n", strerror(errno));
+				exit(1);
+			}
+			totalread += bytes_read;
+			notread -= num_sent;
+		}
+		
 		if (bytes_read <= 0) { break; }
 
 		//manipulate flipping on received bits, change in place in chnl_buff_1
@@ -95,7 +105,7 @@ int main(int argc, char** argv) {
 	totalsent = 0;
 	while (notwritten > 0) {
 		num_sent = sendto(connfd, send_buff + totalsent, notwritten, 0, &channel, sizeof(channel));
-		if (num_sent == -1) {// check if error occured (server closed connection?)
+		if (num_sent == -1) {
 			fprintf(stderr, "%s\n", strerror(errno));
 			exit(1);
 		}
