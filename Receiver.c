@@ -28,7 +28,7 @@ int main(int argc, char** argv) {
 	char r_c_buff[R_C_BUFF], file_write_buff[R_C_BUFF];
 	int send_buff[SEND_BUFF];
 	int tot_err_cnt = 0, tot_received = 0, tot_written_to_file = 0, tot_err_fixed = 0;
-	int notwritten, totalsent, num_sent = 0, bytes_read, notread, totalread = 0;
+	int num_sent = 0, totalread = 0;
 	int listenfd = -1;
 	int connfd = -1;
 	int sockAddrInLength = sizeof(struct sockaddr_in);
@@ -81,16 +81,16 @@ int main(int argc, char** argv) {
 
 		detect_fix_err(r_c_buff, file_write_buff, &tot_err_cnt, &tot_err_fixed);
 
-		if (fwrite(file_write_buff, sizeof(char), bytes_read, fp) != bytes_read) {
+		if (fwrite(file_write_buff, sizeof(char), R_C_BUFF, fp) != R_C_BUFF) {
 			printf("Error writing to file. exiting... \n");
 			exit(1);
 		}
-		tot_written_to_file += bytes_read;
+		tot_written_to_file += R_C_BUFF;
 	}
 
 	//send back stats
 	send_buff[0] = tot_received; send_buff[1] = tot_written_to_file; send_buff[2] = tot_err_cnt; send_buff[3] = tot_err_fixed;
-	send_frame(send_buff, connfd, channel, SEND_BUFF * sizeof(int));
+	send_frame((char*)send_buff, connfd, channel, SEND_BUFF * sizeof(int));
 
 	if (closesocket(connfd) != 0) {
 		fprintf(stderr, "%s\n", strerror(errno));
