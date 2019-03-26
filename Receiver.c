@@ -209,3 +209,6 @@ void detect_fix_err(char r_c_buff_1[R_C_BUFF], char file_write_buff[R_C_BUFF], i
 
 	return;
 }
+
+
+send_block(int fd, )
