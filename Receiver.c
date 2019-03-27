@@ -31,20 +31,21 @@ int main(int argc, char** argv) {
 	int sockAddrInLength = sizeof(struct sockaddr_in);
 	struct sockaddr_in recv_addr, chnl_addr;
 	if (argc != 3) {
-		printf("Error: not enough arguments were provided!\n");
+		printf("Error: wrong number of arguments!\n");
 		exit(1);
 	}
-	Init_Winsock();
 
-	FILE *fp = fopen(argv[2], "wb");
+	Init_Winsock();
+	
+	FILE *fp = fopen(argv[2], "w");
 	if (fp == NULL) {
 		printf("Error opening file. exiting... \n");
 		exit(1);
 	}
 
-	printf("Type “End” when done. \n");
+	printf("Type ''End'' when done. \n");
 
-	if ((s_fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+	if ((s_fd = socket(AF_INET, SOCK_DGRAM, 0)) == INVALID_SOCKET) {
 		fprintf(stderr, "%s\n", strerror(errno));
 		exit(1);
 	}
@@ -57,8 +58,8 @@ int main(int argc, char** argv) {
 	recv_addr.sin_port = htons(local_port);
 	recv_addr.sin_addr.s_addr = INADDR_ANY;
 
-	if (0 != bind(s_fd, (struct sockaddr*) &chnl_addr, sizeof(chnl_addr))) {
-		fprintf(stderr, "%s\n", strerror(errno));
+	if (0 != bind(s_fd, (SOCKADDR *)&recv_addr, sizeof(recv_addr))) {
+		fprintf(stderr, "Bind failed. exiting...\n");
 		return 1;
 	}
 
@@ -97,9 +98,10 @@ int main(int argc, char** argv) {
 void Init_Winsock() {
 	WSADATA wsaData;
 	int iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
-	if (iResult != NO_ERROR)
+	if (iResult != NO_ERROR){
 		printf("Error at WSAStartup()\n");
 	exit(1);
+	}
 }
 
 
