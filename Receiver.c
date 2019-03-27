@@ -7,92 +7,80 @@
 #include <windows.h>
 #include <math.h>
 
-
 #pragma comment(lib, "Ws2_32.lib")
 
 #define STR_LEN 20
-#define R_C_BUFF 64
+#define UDP_BUFF 64
 #define SEND_BUFF 4
-
 
 void Init_Winsock();
 void send_frame(char buff[], int fd, struct sockaddr_in to_addr, int bytes_to_write);
-void receive_frame(char buff[], int fd, int bytes_to_read);
+int receive_frame(char buff[], int fd, int bytes_to_read, struct sockaddr_in *chnl_addr);
 DWORD WINAPI thread_end_listen(void *param);
-void detect_fix_err(char r_c_buff_1[R_C_BUFF], char file_write_buff[R_C_BUFF], int *tot_err_cnt, int *tot_err_fixed);
+void detect_fix_err(char r_c_buff_1[UDP_BUFF], char file_write_buff[UDP_BUFF], int *tot_err_cnt, int *tot_err_fixed);
 
 int END_FLAG = 0;
 
 int main(int argc, char** argv) {
 
-	char r_c_buff[R_C_BUFF], file_write_buff[R_C_BUFF];
+	char r_c_buff[UDP_BUFF], file_write_buff[UDP_BUFF];
 	int send_buff[SEND_BUFF];
 	int tot_err_cnt = 0, tot_received = 0, tot_written_to_file = 0, tot_err_fixed = 0;
 	int num_sent = 0, totalread = 0;
-	int listenfd = -1;
-	int connfd = -1;
+	int s_fd = -1;
 	int sockAddrInLength = sizeof(struct sockaddr_in);
-	struct sockaddr_in receiver_addr, channel;
+	struct sockaddr_in recv_addr, chnl_addr;
 	if (argc != 3) {
 		printf("Error: not enough arguments were provided!\n");
 		exit(1);
 	}
 	Init_Winsock();
 
-	FILE *fp = fopen(argv[2], "w");
+	FILE *fp = fopen(argv[2], "wb");
 	if (fp == NULL) {
 		printf("Error opening file. exiting... \n");
 		exit(1);
 	}
 
-	printf("Type “End” when done");
+	printf("Type “End” when done. \n");
 
-	if ((listenfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+	if ((s_fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
 		fprintf(stderr, "%s\n", strerror(errno));
 		exit(1);
 	}
+	//channel address. other feilds determined in receive frame
+	memset(&chnl_addr, 0, sizeof(chnl_addr));
+	//receiver address
+	unsigned int local_port = (unsigned int)strtoul(argv[1], NULL, 10);
+	memset(&recv_addr, 0, sizeof(recv_addr));
+	recv_addr.sin_family = AF_INET;
+	recv_addr.sin_port = htons(local_port);
+	recv_addr.sin_addr.s_addr = INADDR_ANY;
 
-	unsigned int port = (unsigned int)strtoul(argv[1], NULL, 10); //get channel's port number
-	memset(&receiver_addr, 0, sizeof(receiver_addr));
-	receiver_addr.sin_family = AF_INET;
-	receiver_addr.sin_port = htons(port);
-	receiver_addr.sin_addr.s_addr = INADDR_ANY;
-
-	if (0 != bind(listenfd, (struct sockaddr*) &receiver_addr, sizeof(receiver_addr))) {
+	if (0 != bind(s_fd, (struct sockaddr*) &chnl_addr, sizeof(chnl_addr))) {
 		fprintf(stderr, "%s\n", strerror(errno));
 		return 1;
 	}
-	if (0 != listen(listenfd, 10)) {
-		fprintf(stderr, "%s\n", strerror(errno));
-		return 1;
-	}
-	connfd = accept(listenfd, (struct sockaddr*) &channel, &sockAddrInLength); // implement that there is a thread handing stdin, and then opening a new socket and sending it to the channel
-	if (connfd < 0)
-	{
-		fprintf(stderr, "%s\n", strerror(errno));
-		closesocket(connfd);
-	}
 
+	HANDLE thread = CreateThread(NULL, 0, thread_end_listen, &s_fd, 0, NULL);
 
-	HANDLE thread = CreateThread(NULL, 0, thread_end_listen, &connfd, 0, NULL);
-
-	while (END_FLAG == 0) {
-		receive_frame(r_c_buff, connfd, R_C_BUFF);
+	while (receive_frame(r_c_buff, s_fd, UDP_BUFF, &chnl_addr) == 0 && END_FLAG == 0) {
 
 		detect_fix_err(r_c_buff, file_write_buff, &tot_err_cnt, &tot_err_fixed);
 
-		if (fwrite(file_write_buff, sizeof(char), R_C_BUFF, fp) != R_C_BUFF) {
+		if (fwrite(file_write_buff, sizeof(char), UDP_BUFF, fp) != UDP_BUFF) {
 			printf("Error writing to file. exiting... \n");
 			exit(1);
 		}
-		tot_written_to_file += R_C_BUFF;
+		tot_written_to_file += UDP_BUFF;
 	}
 
 	//send back stats
 	send_buff[0] = tot_received; send_buff[1] = tot_written_to_file; send_buff[2] = tot_err_cnt; send_buff[3] = tot_err_fixed;
-	send_frame((char*)send_buff, connfd, channel, SEND_BUFF * sizeof(int));
+	while (END_FLAG == 0) {}
+	send_frame((char*)send_buff, s_fd, chnl_addr, SEND_BUFF * sizeof(int));
 
-	if (closesocket(connfd) != 0) {
+	if (closesocket(s_fd) != 0) {
 		fprintf(stderr, "%s\n", strerror(errno));
 	}
 	if (fclose(fp) != 0) {
@@ -121,15 +109,16 @@ DWORD WINAPI thread_end_listen(void *param) {
 	int status;
 	int connfd = *((int*)param);
 
-	while (END_FLAG == 0) {
+	while (1) {
 		memset(str, '\0', STR_LEN);
 		if (scanf("%s", str) > 0 && strcmp(str, "END") == 0) {
+			END_FLAG = 1;
 			status = shutdown(connfd, SD_RECEIVE);
 			if (status) {
 				printf("Error while closing socket. \n");
-				return 1;
+				return -1;
 			}
-			END_FLAG = 1;
+			return 0;
 		}
 	}
 	return 0;
@@ -138,16 +127,16 @@ DWORD WINAPI thread_end_listen(void *param) {
 
 
 
-void detect_fix_err(char r_c_buff_1[R_C_BUFF], char file_write_buff[R_C_BUFF], int *tot_err_cnt, int *tot_err_fixed) {
+void detect_fix_err(char r_c_buff_1[UDP_BUFF], char file_write_buff[UDP_BUFF], int *tot_err_cnt, int *tot_err_fixed) {
 
 	int bit_ind, char_ind, block_ind, xor = 0, bit_pos, i, block_err_cnt, row_err, col_err;
 	char curr_bit, last_byte_in_block, diff, mask;
 
-	memset(file_write_buff, 0, R_C_BUFF);
+	memset(file_write_buff, 0, UDP_BUFF);
 
 	for (block_ind = 0; block_ind < 8; block_ind++) {
 		block_err_cnt = 0; row_err = -1; col_err = -1;
-		for (bit_ind = 0; bit_ind < R_C_BUFF; bit_ind++) {
+		for (bit_ind = 0; bit_ind < UDP_BUFF; bit_ind++) {
 
 			if ((bit_ind % 7) == 0 && bit_ind != 0) {
 				if (xor != (1 & r_c_buff_1[char_ind])) {
@@ -191,9 +180,9 @@ void detect_fix_err(char r_c_buff_1[R_C_BUFF], char file_write_buff[R_C_BUFF], i
 void send_frame(char buff[], int fd, struct sockaddr_in to_addr, int bytes_to_write) {
 	int totalsent = 0, num_sent = 0;
 
-	while (bytes_to_write > 0 && END_FLAG == 0) {
+	while (bytes_to_write > 0) {
 		num_sent = sendto(fd, buff + totalsent, bytes_to_write, 0, (SOCKADDR*)&to_addr, sizeof(to_addr));
-		if (num_sent == -1) {
+		if (num_sent < 0) {
 			fprintf(stderr, "%s\n", strerror(errno));
 			exit(1);
 		}
@@ -203,16 +192,19 @@ void send_frame(char buff[], int fd, struct sockaddr_in to_addr, int bytes_to_wr
 }
 
 
-void receive_frame(char buff[], int fd, int bytes_to_read) {
-	int totalread = 0, bytes_been_read = 0;
+int receive_frame(char buff[], int fd, int bytes_to_read, struct sockaddr_in *chnl_addr){
+	int totalread = 0, bytes_been_read = 0, addrsize;
+	struct sockaddr from_addr;
 
 	totalread = 0;
 	while (bytes_to_read > 0) {
-		bytes_been_read = recvfrom(fd, (char*)buff + totalread, bytes_to_read, 0, 0, 0);
-		if (bytes_been_read == -1) {
+		bytes_been_read = recvfrom(fd, (char*)buff + totalread, bytes_to_read, 0, &from_addr, &addrsize);
+		memcpy(chnl_addr, &from_addr, addrsize); // get channel address
+		if (bytes_been_read < 0) {
 			fprintf(stderr, "%s\n", strerror(errno));
 			exit(1);
 		}
 		totalread -= bytes_been_read;
 	}
+	return 0;
 }
