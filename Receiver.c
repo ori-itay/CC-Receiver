@@ -30,7 +30,7 @@ volatile unsigned short local_port;
 int main(int argc, char** argv) {
 
 	char r_c_buff[UDP_BUFF], file_write_buff[UDP_BUFF];
-	int send_buff[SEND_BUFF];
+	int send_buff[SEND_BUFF] = { 0 };
 	int tot_err_cnt = 0, tot_received = 0, tot_written_to_file = 0, tot_err_fixed = 0;
 	int num_sent = 0, totalread = 0;
 	int sockAddrInLength = sizeof(struct sockaddr_in);
@@ -86,10 +86,9 @@ int main(int argc, char** argv) {
 
 	//send back stats
 	send_buff[0] = tot_received; send_buff[1] = tot_written_to_file; send_buff[2] = tot_err_cnt; send_buff[3] = tot_err_fixed;
-	while (END_FLAG == 0) {}
-	printf("before sending back to channel \n");
-	send_frame((char*)send_buff, s_fd, chnl_addr, SEND_BUFF * sizeof(int));
-	printf("after sending back to channel \n");
+
+	send_frame((char*)send_buff, s_fd, chnl_addr, 16);
+
 	if (closesocket(s_fd) != 0) {
 		fprintf(stderr, "%s\n", strerror(errno));
 	}
@@ -216,24 +215,14 @@ int receive_frame(char buff[], int fd, int bytes_to_read, struct sockaddr_in *ch
 		printf("L209  gonna block now\n");
 
 		struct fd_set fds;
-		//int maxfd = (fd > 0) ? fd : 0;
 
 		FD_ZERO(&fds);
 		FD_SET(fd, &fds);
-		//FD_SET(2, &fds); // 0 for STDIN
 		//fflush(0);
 		int SelectTiming = select(fd + 1, &fds, NULL, NULL, NULL);
 		if (END_FLAG == 1) {
 			break;
 		}
-	/*	if (FD_ISSET(2, &fds)) {
-			printf("BLALB\n");
-			char str[1024] = { 0 };
-			if (scanf("%s", str) > 0 && strcmp(str, "END") == 0) {
-				END_FLAG = 1;
-				return 1;
-			}
-		} */
 		printf("woke up from the block\n");
 		if (FD_ISSET(fd, &fds)) {
 			printf("SOCKET IS READY\n");
@@ -248,11 +237,7 @@ int receive_frame(char buff[], int fd, int bytes_to_read, struct sockaddr_in *ch
 			totalread += bytes_been_read;
 		}
 		printf("woke up from the block\n");
-	}/*
-	for (int i = 0; i < UDP_BUFF; i++) {
-		printf("%08x",buff[i]);
 	}
-	printf("\n");*/
 	return 0;
 }
 
