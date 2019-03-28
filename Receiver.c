@@ -6,6 +6,7 @@
 #include <string.h>
 #include <windows.h>
 #include <math.h>
+#include <time.h>
 
 #pragma comment(lib, "Ws2_32.lib")
 
@@ -13,17 +14,19 @@
 #define UDP_BUFF 64
 #define SEND_BUFF 4
 
+int recvfromTimeOutUDP(SOCKET socket, long sec, long usec);
 void Init_Winsock();
 void send_frame(char buff[], int fd, struct sockaddr_in to_addr, int bytes_to_write);
 int receive_frame(char buff[], int fd, int bytes_to_read, struct sockaddr_in *chnl_addr);
 DWORD WINAPI thread_end_listen(void *param);
 void detect_fix_err(char r_c_buff_1[UDP_BUFF], char file_write_buff[UDP_BUFF], int *tot_err_cnt, int *tot_err_fixed);
 
-int END_FLAG = 0;
+volatile int END_FLAG = 0;
+volatile int SelectTiming = 1;
 
 int main(int argc, char** argv) {
 
-	char r_c_buff[UDP_BUFF], file_write_buff[UDP_BUFF];
+	char r_c_buff[UDP_BUFF+1], file_write_buff[UDP_BUFF];
 	int send_buff[SEND_BUFF];
 	int tot_err_cnt = 0, tot_received = 0, tot_written_to_file = 0, tot_err_fixed = 0;
 	int num_sent = 0, totalread = 0;
@@ -43,12 +46,13 @@ int main(int argc, char** argv) {
 		exit(1);
 	}
 
-	printf("Type ''End'' when done. \n");
+	printf("Type ''END'' when done. \n");
 
 	if ((s_fd = socket(AF_INET, SOCK_DGRAM, 0)) == INVALID_SOCKET) {
 		fprintf(stderr, "%s\n", strerror(errno));
 		exit(1);
 	}
+
 	//channel address. other feilds determined in receive frame
 	memset(&chnl_addr, 0, sizeof(chnl_addr));
 	//receiver address
@@ -63,9 +67,9 @@ int main(int argc, char** argv) {
 		return 1;
 	}
 
-	HANDLE thread = CreateThread(NULL, 0, thread_end_listen, &s_fd, 0, NULL);
+	//HANDLE thread = CreateThread(NULL, 0, thread_end_listen, &s_fd, 0, NULL);
 
-	while (receive_frame(r_c_buff, s_fd, UDP_BUFF, &chnl_addr) == 0 && END_FLAG == 0) {
+	while (END_FLAG == 0 && receive_frame(r_c_buff, s_fd, UDP_BUFF, &chnl_addr) == 0) {
 
 		detect_fix_err(r_c_buff, file_write_buff, &tot_err_cnt, &tot_err_fixed);
 
@@ -79,8 +83,9 @@ int main(int argc, char** argv) {
 	//send back stats
 	send_buff[0] = tot_received; send_buff[1] = tot_written_to_file; send_buff[2] = tot_err_cnt; send_buff[3] = tot_err_fixed;
 	while (END_FLAG == 0) {}
+	printf("before sending back to channel \n");
 	send_frame((char*)send_buff, s_fd, chnl_addr, SEND_BUFF * sizeof(int));
-
+	printf("after sending back to channel \n");
 	if (closesocket(s_fd) != 0) {
 		fprintf(stderr, "%s\n", strerror(errno));
 	}
@@ -108,18 +113,20 @@ void Init_Winsock() {
 
 DWORD WINAPI thread_end_listen(void *param) {
 	char str[STR_LEN];
-	int status;
-	int connfd = *((int*)param);
+	//int status;
+	int fd = *((int*)param);
 
 	while (1) {
 		memset(str, '\0', STR_LEN);
 		if (scanf("%s", str) > 0 && strcmp(str, "END") == 0) {
 			END_FLAG = 1;
-			status = shutdown(connfd, SD_RECEIVE);
+			printf("END FLAG IS UP\n");
+			/*status = shutdown(fd, SD_RECEIVE);
+			printf("SHUTDOWN SENT\n");
 			if (status) {
 				printf("Error while closing socket. \n");
 				return -1;
-			}
+			}*/
 			return 0;
 		}
 	}
@@ -198,14 +205,77 @@ int receive_frame(char buff[], int fd, int bytes_to_read, struct sockaddr_in *ch
 	int totalread = 0, bytes_been_read = 0, addrsize;
 	struct sockaddr from_addr;
 
-	while (totalread < bytes_to_read ) {
-		bytes_been_read = recvfrom(fd, buff + totalread, bytes_to_read, 0, &from_addr, &addrsize);
-		memcpy(chnl_addr, &from_addr, addrsize); // get channel address
-		if (bytes_been_read < 0) {
-			fprintf(stderr, "%s\n", strerror(errno));
-			exit(1);
+	while (END_FLAG == 0 && totalread < bytes_to_read && SelectTiming > 0) {
+		printf("L209  gonna block now\n");
+		struct fd_set fds;
+		int maxfd = (fd > 0) ? fd : 0;
+
+		FD_ZERO(&fds);
+		FD_SET(fd, &fds);
+		FD_SET(0, &fds); // 0 for STDIN
+		fflush(0);
+		int SelectTiming = select(maxfd + 1, &fds, NULL, NULL, NULL);
+		if (FD_ISSET(0, &fd)) {
+			char str[1024] = { 0 };
+			if (scanf("%s", str) > 0 && strcmp(str, "END") == 0) {
+				END_FLAG = 1;
+				return 1;
+			}
 		}
-		totalread += bytes_been_read;
+		if (FD_ISSET(fd, &fds)) {
+			bytes_been_read = recvfrom(fd, buff + totalread, bytes_to_read, 0, &from_addr, &addrsize);
+			memcpy(chnl_addr, &from_addr, addrsize); // get channel address
+			if (bytes_been_read < 0) {
+				fprintf(stderr, "%s\n", strerror(errno));
+				exit(1);
+			}
+			totalread += bytes_been_read;
+		}
+	}/*
+	buff[UDP_BUFF] = 0;
+	for (int i = 0; i < UDP_BUFF; i++) {
+		printf(buff[i]);
 	}
+	printf("\n");*/
 	return 0;
+}
+
+
+int recvfromTimeOutUDP(SOCKET socket, long sec, long usec)
+{
+
+	// Setup timeval variable
+
+
+
+
+	//struct timeval timeout;
+
+	struct fd_set fds;
+	int maxfd = (socket > 0) ? socket : 0;
+
+	FD_ZERO(&fds);
+	FD_SET(socket, &fds);
+	FD_SET(0, &fds);
+
+	//timeout.tv_sec = sec;
+
+	//timeout.tv_usec = usec;
+
+	// Setup fd_set structure
+	/*
+	FD_ZERO(&fds);
+
+	FD_SET(socket, &fds); */
+
+	// Return value:
+
+	// -1: error occurred
+
+	// 0: timed out
+
+	// > 0: data ready to be read
+
+	return select(maxfd+1, &fds, NULL, NULL, NULL);
+
 }
