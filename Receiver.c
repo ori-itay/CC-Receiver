@@ -52,7 +52,7 @@ int main(int argc, char** argv) {
 	//channel address. other feilds determined in receive frame
 	memset(&chnl_addr, 0, sizeof(chnl_addr));
 	//receiver address
-	unsigned int local_port = (unsigned int)strtoul(argv[1], NULL, 10);
+	unsigned short local_port = (unsigned short)strtoul(argv[1], NULL, 10);
 	memset(&recv_addr, 0, sizeof(recv_addr));
 	recv_addr.sin_family = AF_INET;
 	recv_addr.sin_port = htons(local_port);
@@ -100,7 +100,7 @@ void Init_Winsock() {
 	int iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
 	if (iResult != NO_ERROR){
 		printf("Error at WSAStartup()\n");
-	exit(1);
+		exit(1);
 	}
 }
 
@@ -198,15 +198,14 @@ int receive_frame(char buff[], int fd, int bytes_to_read, struct sockaddr_in *ch
 	int totalread = 0, bytes_been_read = 0, addrsize;
 	struct sockaddr from_addr;
 
-	totalread = 0;
-	while (bytes_to_read > 0) {
-		bytes_been_read = recvfrom(fd, (char*)buff + totalread, bytes_to_read, 0, &from_addr, &addrsize);
+	while (totalread < bytes_to_read ) {
+		bytes_been_read = recvfrom(fd, buff + totalread, bytes_to_read, 0, &from_addr, &addrsize);
 		memcpy(chnl_addr, &from_addr, addrsize); // get channel address
 		if (bytes_been_read < 0) {
 			fprintf(stderr, "%s\n", strerror(errno));
 			exit(1);
 		}
-		totalread -= bytes_been_read;
+		totalread += bytes_been_read;
 	}
 	return 0;
 }
