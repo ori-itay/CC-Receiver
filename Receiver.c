@@ -142,7 +142,7 @@ DWORD WINAPI thread_end_listen(void *param) {
 
 
 
-void detect_fix_err(char r_c_buff_1[UDP_BUFF], char file_write_buff[UDP_BUFF], int *tot_err_cnt, int *tot_err_fixed) {
+void detect_fix_err(char r_c_buff[UDP_BUFF], char file_write_buff[UDP_BUFF], int *tot_err_cnt, int *tot_err_fixed) {
 
 	int bit_ind, char_ind, block_ind, xor = 0, bit_pos, i, block_err_cnt, row_err, col_err;
 	char curr_bit, last_byte_in_block, diff, mask;
@@ -154,7 +154,7 @@ void detect_fix_err(char r_c_buff_1[UDP_BUFF], char file_write_buff[UDP_BUFF], i
 		for (bit_ind = 0; bit_ind < UDP_BUFF; bit_ind++) {
 
 			if ((bit_ind % 7) == 0 && bit_ind != 0) {
-				if (xor != (1 & r_c_buff_1[char_ind])) {
+				if (xor != (1 & r_c_buff[char_ind])) {
 					block_err_cnt++;
 					row_err = bit_ind / 8;
 				}
@@ -164,16 +164,16 @@ void detect_fix_err(char r_c_buff_1[UDP_BUFF], char file_write_buff[UDP_BUFF], i
 			char_ind = (bit_ind / 8) + (block_ind * 8);
 			bit_pos = 7 - bit_ind % 7;
 
-			curr_bit = (r_c_buff_1[char_ind] & ((int)pow(2, bit_pos))) != 0; // 1 if result after mask is different from 0. otherwise - 0.
-			file_write_buff[char_ind] = (curr_bit << bit_pos) | r_c_buff_1[char_ind];
+			curr_bit = (r_c_buff[char_ind] & ((int)pow(2, bit_pos))) != 0; // 1 if result after mask is different from 0. otherwise - 0.
+			file_write_buff[char_ind] = (curr_bit << bit_pos) | r_c_buff[char_ind];
 			xor ^= curr_bit;
 		}
 
 		last_byte_in_block = 0;
 		for (i = 0; i < 8; i++) {
-			last_byte_in_block ^= r_c_buff_1[i];
+			last_byte_in_block ^= r_c_buff[i];
 		}
-		diff = r_c_buff_1[7 + (block_ind * 8)] ^ last_byte_in_block;
+		diff = r_c_buff[7 + (block_ind * 8)] ^ last_byte_in_block;
 		for (i = 0; i < 8; i++) {
 			if (((int)pow(2, i) & diff) != 0) {
 				block_err_cnt++;
@@ -181,9 +181,10 @@ void detect_fix_err(char r_c_buff_1[UDP_BUFF], char file_write_buff[UDP_BUFF], i
 			}
 		}
 		*tot_err_cnt += (block_err_cnt != 0); // inc if any errors occured
-		if (block_err_cnt == 2) { //one in row and one in column - fix bit
-			mask = (int)pow(2, col_err);
-			r_c_buff_1[row_err + (block_ind * 8)] ^= mask;
+		if (block_err_cnt == 2 && row_err!=-1 && col_err!=-1) { //one in row and one in column - fix bit
+			printf("row_err :%d, block_ind *8 :%d , row_err + block*8 = %d\n", row_err, block_ind * 8, row_err + (block_ind * 8));
+			mask = (char)pow(2, col_err);
+			file_write_buff[row_err + (block_ind * 8)] ^= mask;
 			*tot_err_fixed++;
 		}
 	}
@@ -221,7 +222,7 @@ int receive_frame(char buff[], int fd, int bytes_to_read, struct sockaddr_in *ch
 		//fflush(0);
 		int SelectTiming = select(fd + 1, &fds, NULL, NULL, NULL);
 		if (END_FLAG == 1) {
-			break;
+			return 1;
 		}
 		printf("woke up from the block\n");
 		if (FD_ISSET(fd, &fds)) {
