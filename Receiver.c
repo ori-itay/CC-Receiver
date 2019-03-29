@@ -8,6 +8,7 @@
 #include <windows.h>
 #include <math.h>
 #include <time.h>
+#include <errno.h>
 
 #pragma comment(lib, "Ws2_32.lib")
 
@@ -36,22 +37,22 @@ int main(int argc, char** argv) {
 	int sockAddrInLength = sizeof(struct sockaddr_in);
 	struct sockaddr_in recv_addr, chnl_addr;
 	if (argc != 3) {
-		printf("Error: wrong number of arguments!\n");
+		fprintf(stderr, "Error: wrong number of arguments! Exiting...\n");
 		exit(1);
 	}
 
 	Init_Winsock();
 	
-	FILE *fp = fopen(argv[2], "w");
+	FILE *fp = fopen(argv[2], "wb");
 	if (fp == NULL) {
-		printf("Error opening file. exiting... \n");
+		fprintf(stderr,"Error opening file. Exiting...\n");
 		exit(1);
 	}
 
-	printf("Type ''END'' when done. \n");
+	printf("Type ''End'' when done.\n");
 
 	if ((s_fd = socket(AF_INET, SOCK_DGRAM, 0)) == INVALID_SOCKET) {
-		fprintf(stderr, "%s\n", strerror(errno));
+		fprintf(stderr, "Error: problem while opening socket. Exiting...\n");
 		exit(1);
 	}
 
@@ -65,7 +66,7 @@ int main(int argc, char** argv) {
 	recv_addr.sin_addr.s_addr = INADDR_ANY;
 
 	if (0 != bind(s_fd, (SOCKADDR *)&recv_addr, sizeof(recv_addr))) {
-		fprintf(stderr, "Bind failed. exiting...\n");
+		fprintf(stderr, "Bind failed. Exiting...\n");
 		return 1;
 	}
 
@@ -73,45 +74,41 @@ int main(int argc, char** argv) {
 
 	while (receive_frame(r_c_buff, s_fd, UDP_BUFF, &chnl_addr) == 0 && END_FLAG == 0) {
 		tot_received += UDP_BUFF;
-		printf("in while after receive frame. \n");
 		detect_fix_err(r_c_buff, file_write_buff, &tot_err_cnt, &tot_err_fixed);
-		printf("after fix errors. \n");
 		if (fwrite(file_write_buff, sizeof(char), UDP_BUFF, fp) != UDP_BUFF) {
-			printf("Error writing to file. exiting... \n");
+			fprintf(stderr, "Error writing to file. Exiting...\n");
 			exit(1);
 		}
 		tot_written_to_file += UDP_BUFF;
-		printf("after write to file. written: %d \n", tot_written_to_file);
 	}
 
 	//send back stats
 	send_buff[0] = tot_received; send_buff[1] = tot_written_to_file; send_buff[2] = tot_err_cnt; send_buff[3] = tot_err_fixed;
-
 	send_frame((char*)send_buff, s_fd, chnl_addr, 16);
 
 	if (closesocket(s_fd) != 0) {
-		fprintf(stderr, "%s\n", strerror(errno));
+		fprintf(stderr, "Error while closing socket. \n");
 	}
 	if (fclose(fp) != 0) {
 		fprintf(stderr, "%s\n", strerror(errno));
 	}
 
-	printf("received: %d bytes\nwrote: %d bytes\ndetected: %d errors, corrected: %d errors\n",
+	fprintf(stderr, "received: %d bytes\nwrote: %d bytes\ndetected: %d errors, corrected: %d errors",
 		tot_received, tot_written_to_file, tot_err_cnt, tot_err_fixed);
 
 	WSACleanup();
 	return 0;
 }
 
+
 void Init_Winsock() {
 	WSADATA wsaData;
 	int iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
 	if (iResult != NO_ERROR){
-		printf("Error at WSAStartup()\n");
+		fprintf(stderr,"Error at WSAStartup(). Exiting...\n");
 		exit(1);
 	}
 }
-
 
 
 DWORD WINAPI thread_end_listen(void *param) {
@@ -120,7 +117,7 @@ DWORD WINAPI thread_end_listen(void *param) {
 
 	while (1) {
 		memset(str, '\0', STR_LEN);
-		if (scanf("%s", str) > 0 && strcmp(str, "END") == 0) {
+		if (scanf("%s", str) > 0 && strcmp(str, "End") == 0) {
 			END_FLAG = 1;
 			struct sockaddr_in send_itself;
 			memset(&send_itself, 0, sizeof(send_itself));
@@ -129,32 +126,28 @@ DWORD WINAPI thread_end_listen(void *param) {
 			send_itself.sin_addr.s_addr = inet_addr("127.0.0.1");
 			status = sendto(s_fd, "0", 1, 0, (SOCKADDR*)&send_itself, sizeof(send_itself));
 			if (status < 0) {
-				fprintf(stderr, "%s\n", strerror(errno));
+				fprintf(stderr, "Error while sending to socket. \n");
 				exit(1);
 			}
 			return 0;
 		}
 	}
-	return 0;
+	return 0; // should not get here
 }
-
-
 
 
 void detect_fix_err(char r_c_buff[UDP_BUFF], char file_write_buff[UDP_BUFF], int *tot_err_cnt, int *tot_err_fixed) {
 
 	int bit_ind, char_ind, block_ind, xor = 0, bit_pos, i, block_err_cnt, row_err, col_err;
 	char curr_bit, last_byte_in_block, diff, mask;
-
 	memset(file_write_buff, 0, UDP_BUFF);
 
 	for (block_ind = 0; block_ind < 8; block_ind++) {
 		block_err_cnt = 0; row_err = -1; col_err = -1; 
 		for (bit_ind = 0; bit_ind < UDP_BUFF; bit_ind++) {
-
-			if ((bit_ind % 7) == 0 && bit_ind != 0) {
+			
+			if ( ( (bit_ind+1) % 8) == 0 && bit_ind != 0) {
 				if (xor != (1 & r_c_buff[char_ind])) {
-					printf("bit_ind: %d\n", bit_ind);
 					block_err_cnt++;
 					row_err = bit_ind / 8;
 				}
@@ -183,7 +176,6 @@ void detect_fix_err(char r_c_buff[UDP_BUFF], char file_write_buff[UDP_BUFF], int
 		}
 		(*tot_err_cnt)+= (block_err_cnt != 0); // inc if any errors occured
 		if (block_err_cnt == 2 && row_err!=-1 && col_err!=-1) { //one in row and one in column - fix bit
-			printf("row_err :%d, block_ind *8 :%d , row_err + block*8 = %d\n", row_err, block_ind * 8, row_err + (block_ind * 8));
 			mask = (char)pow(2, col_err);
 			file_write_buff[row_err + (block_ind * 8)] ^= mask;
 			(*tot_err_fixed)++;
@@ -199,8 +191,8 @@ void send_frame(char buff[], int fd, struct sockaddr_in to_addr, int bytes_to_wr
 	while (bytes_to_write > 0) {
 		num_sent = sendto(fd, buff + totalsent, bytes_to_write, 0, (SOCKADDR*)&to_addr, sizeof(to_addr));
 		if (num_sent < 0) {
-			fprintf(stderr, "%s\n", strerror(errno));
-			exit(1);
+			fprintf(stderr, "Error while sending frame. \n");
+			return;
 		}
 		totalsent += num_sent;
 		bytes_to_write -= num_sent;
@@ -227,8 +219,8 @@ int receive_frame(char buff[], int fd, int bytes_to_read, struct sockaddr_in *ch
 			bytes_been_read = recvfrom(fd, buff + totalread, bytes_to_read, 0, &from_addr, &addrsize);
 			memcpy(chnl_addr, &from_addr, addrsize); // get channel address
 			if (bytes_been_read < 0) {
-				fprintf(stderr, "%s\n", strerror(errno));
-				exit(1);
+				fprintf(stderr, "Error while receiving frame. \n");
+				return 0;
 			}
 			totalread += bytes_been_read;
 		}
@@ -240,13 +232,6 @@ int receive_frame(char buff[], int fd, int bytes_to_read, struct sockaddr_in *ch
 int recvfromTimeOutUDP(SOCKET socket, long sec, long usec)
 {
 
-	// Setup timeval variable
-
-
-
-
-	//struct timeval timeout;
-
 	struct fd_set fds;
 	int maxfd = (socket > 0) ? socket : 0;
 
@@ -254,24 +239,5 @@ int recvfromTimeOutUDP(SOCKET socket, long sec, long usec)
 	FD_SET(socket, &fds);
 	FD_SET(0, &fds);
 
-	//timeout.tv_sec = sec;
-
-	//timeout.tv_usec = usec;
-
-	// Setup fd_set structure
-	/*
-	FD_ZERO(&fds);
-
-	FD_SET(socket, &fds); */
-
-	// Return value:
-
-	// -1: error occurred
-
-	// 0: timed out
-
-	// > 0: data ready to be read
-
 	return select(maxfd+1, &fds, NULL, NULL, NULL);
-
 }
