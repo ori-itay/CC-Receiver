@@ -15,6 +15,7 @@
 #define STR_LEN 20
 #define UDP_BUFF 64
 #define SEND_BUFF 4
+#define WRITE_BUFF 49
 
 int recvfromTimeOutUDP(SOCKET socket, long sec, long usec);
 void Init_Winsock();
@@ -22,6 +23,7 @@ void send_frame(char buff[], int fd, struct sockaddr_in to_addr, int bytes_to_wr
 int receive_frame(char buff[], int fd, int bytes_to_read, struct sockaddr_in *chnl_addr);
 DWORD WINAPI thread_end_listen(void *param);
 void detect_fix_err(char r_c_buff_1[UDP_BUFF], char file_write_buff[UDP_BUFF], int *tot_err_cnt, int *tot_err_fixed);
+void extract_write_to_file(char file_write_buff[UDP_BUFF], FILE *fp);
 
 volatile int END_FLAG = 0;
 volatile int SelectTiming = 1;
@@ -75,10 +77,7 @@ int main(int argc, char** argv) {
 	while (receive_frame(r_c_buff, s_fd, UDP_BUFF, &chnl_addr) == 0 && END_FLAG == 0) {
 		tot_received += UDP_BUFF;
 		detect_fix_err(r_c_buff, file_write_buff, &tot_err_cnt, &tot_err_fixed);
-		if (fwrite(file_write_buff, sizeof(char), UDP_BUFF, fp) != UDP_BUFF) {
-			fprintf(stderr, "Error writing to file. Exiting...\n");
-			exit(1);
-		}
+		extract_write_to_file(file_write_buff, fp);
 		tot_written_to_file += UDP_BUFF;
 	}
 
@@ -240,4 +239,39 @@ int recvfromTimeOutUDP(SOCKET socket, long sec, long usec)
 	FD_SET(0, &fds);
 
 	return select(maxfd+1, &fds, NULL, NULL, NULL);
+}
+
+void extract_write_to_file(char file_write_buff[UDP_BUFF], FILE *fp) {
+	int bit_ind, read_ind = 0, write_ind = 0, block_ind, r_bit_pos = 7, w_bit_pos = 7;
+	char curr_bit;
+	char extraction_buff[WRITE_BUFF] = { 0 };
+
+	for (block_ind = 0; block_ind < 8; block_ind++) {
+		for (bit_ind = 0; bit_ind < UDP_BUFF - 8; bit_ind++) { // each row in block but the last one
+
+			if ((bit_ind % 7) != 0 || bit_ind == 0) {
+				curr_bit = (file_write_buff[read_ind] & (int)pow(2, r_bit_pos)) != 0; // 1 if result after mask is different from 0. otherwise - 0.
+				extraction_buff[write_ind] = (curr_bit << w_bit_pos) | extraction_buff[write_ind];
+				//printf("block_num: %d, bit_ind: %d, w_bit_pos: %d, write_ind: %d\n", block_ind, bit_ind, w_bit_pos, write_ind);
+				w_bit_pos--;
+				if (w_bit_pos == -1) {
+					w_bit_pos = 7;
+					write_ind++;
+				}
+			}
+			r_bit_pos--;
+			if (r_bit_pos == 0) {
+				r_bit_pos = 7;
+				read_ind++;
+			}
+		}
+	}
+
+
+
+
+	if (fwrite(extraction_buff, sizeof(char), WRITE_BUFF, fp) != WRITE_BUFF) {
+		fprintf(stderr, "Error writing to file.\n");
+		return;
+	}
 }
