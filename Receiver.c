@@ -202,6 +202,7 @@ void send_frame(char buff[], int fd, struct sockaddr_in to_addr, int bytes_to_wr
 int receive_frame(char buff[], int fd, int bytes_to_read, struct sockaddr_in *chnl_addr){
 	int totalread = 0, bytes_been_read = 0, addrsize;
 	struct sockaddr from_addr;
+	memset(buff, '\0', UDP_BUFF);
 
 	while (END_FLAG == 0 && totalread < bytes_to_read) { // && SelectTiming > 0
 		struct fd_set fds;
@@ -247,24 +248,25 @@ void extract_write_to_file(char file_write_buff[UDP_BUFF], FILE *fp) {
 	char extraction_buff[WRITE_BUFF] = { 0 };
 
 	for (block_ind = 0; block_ind < 8; block_ind++) {
-		for (bit_ind = 0; bit_ind < UDP_BUFF - 8; bit_ind++) { // each row in block but the last one
+		for (bit_ind = 0; bit_ind < UDP_BUFF-8; bit_ind++) { // each row in block but the last one
 
-			if ((bit_ind % 7) != 0 || bit_ind == 0) {
+			if ( (bit_ind+1) % 8 != 0) {
 				curr_bit = (file_write_buff[read_ind] & (int)pow(2, r_bit_pos)) != 0; // 1 if result after mask is different from 0. otherwise - 0.
 				extraction_buff[write_ind] = (curr_bit << w_bit_pos) | extraction_buff[write_ind];
-				//printf("block_num: %d, bit_ind: %d, w_bit_pos: %d, write_ind: %d\n", block_ind, bit_ind, w_bit_pos, write_ind);
+
 				w_bit_pos--;
 				if (w_bit_pos == -1) {
 					w_bit_pos = 7;
 					write_ind++;
 				}
-			}
-			r_bit_pos--;
-			if (r_bit_pos == 0) {
-				r_bit_pos = 7;
-				read_ind++;
+				r_bit_pos--;
+				if (r_bit_pos == 0) {
+					r_bit_pos = 7;
+					read_ind++;
+				}
 			}
 		}
+		read_ind++;
 	}
 
 
