@@ -122,7 +122,6 @@ DWORD WINAPI thread_end_listen(void *param) {
 		memset(str, '\0', STR_LEN);
 		if (scanf("%s", str) > 0 && strcmp(str, "END") == 0) {
 			END_FLAG = 1;
-			printf("END FLAG IS UP\n");
 			struct sockaddr_in send_itself;
 			memset(&send_itself, 0, sizeof(send_itself));
 			send_itself.sin_family = AF_INET;
@@ -150,19 +149,21 @@ void detect_fix_err(char r_c_buff[UDP_BUFF], char file_write_buff[UDP_BUFF], int
 	memset(file_write_buff, 0, UDP_BUFF);
 
 	for (block_ind = 0; block_ind < 8; block_ind++) {
-		block_err_cnt = 0; row_err = -1; col_err = -1;
+		block_err_cnt = 0; row_err = -1; col_err = -1; 
 		for (bit_ind = 0; bit_ind < UDP_BUFF; bit_ind++) {
 
 			if ((bit_ind % 7) == 0 && bit_ind != 0) {
 				if (xor != (1 & r_c_buff[char_ind])) {
+					printf("bit_ind: %d\n", bit_ind);
 					block_err_cnt++;
 					row_err = bit_ind / 8;
 				}
+				xor = 0;
 				continue;
 			}
 
 			char_ind = (bit_ind / 8) + (block_ind * 8);
-			bit_pos = 7 - bit_ind % 7;
+			bit_pos = 7 - (bit_ind % 7);
 
 			curr_bit = (r_c_buff[char_ind] & ((int)pow(2, bit_pos))) != 0; // 1 if result after mask is different from 0. otherwise - 0.
 			file_write_buff[char_ind] = (curr_bit << bit_pos) | r_c_buff[char_ind];
@@ -170,8 +171,8 @@ void detect_fix_err(char r_c_buff[UDP_BUFF], char file_write_buff[UDP_BUFF], int
 		}
 
 		last_byte_in_block = 0;
-		for (i = 0; i < 8; i++) {
-			last_byte_in_block ^= r_c_buff[i];
+		for (i = 0; i < 7; i++) {
+			last_byte_in_block ^= r_c_buff[i+block_ind*8];
 		}
 		diff = r_c_buff[7 + (block_ind * 8)] ^ last_byte_in_block;
 		for (i = 0; i < 8; i++) {
@@ -180,15 +181,14 @@ void detect_fix_err(char r_c_buff[UDP_BUFF], char file_write_buff[UDP_BUFF], int
 				col_err = i;
 			}
 		}
-		*tot_err_cnt += (block_err_cnt != 0); // inc if any errors occured
+		(*tot_err_cnt)+= (block_err_cnt != 0); // inc if any errors occured
 		if (block_err_cnt == 2 && row_err!=-1 && col_err!=-1) { //one in row and one in column - fix bit
 			printf("row_err :%d, block_ind *8 :%d , row_err + block*8 = %d\n", row_err, block_ind * 8, row_err + (block_ind * 8));
 			mask = (char)pow(2, col_err);
 			file_write_buff[row_err + (block_ind * 8)] ^= mask;
-			*tot_err_fixed++;
+			(*tot_err_fixed)++;
 		}
 	}
-
 	return;
 }
 
@@ -213,8 +213,6 @@ int receive_frame(char buff[], int fd, int bytes_to_read, struct sockaddr_in *ch
 	struct sockaddr from_addr;
 
 	while (END_FLAG == 0 && totalread < bytes_to_read) { // && SelectTiming > 0
-		printf("L209  gonna block now\n");
-
 		struct fd_set fds;
 
 		FD_ZERO(&fds);
@@ -224,12 +222,9 @@ int receive_frame(char buff[], int fd, int bytes_to_read, struct sockaddr_in *ch
 		if (END_FLAG == 1) {
 			return 1;
 		}
-		printf("woke up from the block\n");
 		if (FD_ISSET(fd, &fds)) {
-			printf("SOCKET IS READY\n");
 			addrsize = sizeof(from_addr);
 			bytes_been_read = recvfrom(fd, buff + totalread, bytes_to_read, 0, &from_addr, &addrsize);
-			printf("total read is:%d\n", totalread);
 			memcpy(chnl_addr, &from_addr, addrsize); // get channel address
 			if (bytes_been_read < 0) {
 				fprintf(stderr, "%s\n", strerror(errno));
@@ -237,7 +232,6 @@ int receive_frame(char buff[], int fd, int bytes_to_read, struct sockaddr_in *ch
 			}
 			totalread += bytes_been_read;
 		}
-		printf("woke up from the block\n");
 	}
 	return 0;
 }
