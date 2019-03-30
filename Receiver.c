@@ -78,7 +78,7 @@ int main(int argc, char** argv) {
 		tot_received += UDP_BUFF;
 		detect_fix_err(r_c_buff, file_write_buff, &tot_err_cnt, &tot_err_fixed);
 		extract_write_to_file(file_write_buff, fp);
-		tot_written_to_file += UDP_BUFF;
+		tot_written_to_file += WRITE_BUFF;
 	}
 
 	//send back stats
@@ -204,12 +204,11 @@ int receive_frame(char buff[], int fd, int bytes_to_read, struct sockaddr_in *ch
 	struct sockaddr from_addr;
 	memset(buff, '\0', UDP_BUFF);
 
-	while (END_FLAG == 0 && totalread < bytes_to_read) { // && SelectTiming > 0
+	while (END_FLAG == 0 && totalread < bytes_to_read) {
 		struct fd_set fds;
 
 		FD_ZERO(&fds);
 		FD_SET(fd, &fds);
-		//fflush(0);
 		int SelectTiming = select(fd + 1, &fds, NULL, NULL, NULL);
 		if (END_FLAG == 1) {
 			return 1;
@@ -241,6 +240,7 @@ int recvfromTimeOutUDP(SOCKET socket, long sec, long usec)
 
 	return select(maxfd+1, &fds, NULL, NULL, NULL);
 }
+
 
 void extract_write_to_file(char file_write_buff[UDP_BUFF], FILE *fp) {
 	int bit_ind, read_ind = 0, write_ind = 0, block_ind, r_bit_pos = 7, w_bit_pos = 7;
